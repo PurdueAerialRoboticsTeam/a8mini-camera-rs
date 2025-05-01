@@ -95,11 +95,11 @@ impl A8Mini<Connected> {
         Ok(recv_buffer)
     }
 
-    /// Verify that camera is connected
+    /// Verify that camera is connected on both command and http sockets
     pub async fn ping(
         &self,
     ) -> bool {
-        self.get_attitude_information().await.is_ok()
+        self.get_attitude_information().await.is_ok() && self.get_photo_information().await.is_ok()
     }
 
     /// Retrieves attitude information from the camera. 
@@ -111,6 +111,17 @@ impl A8Mini<Connected> {
             .await?;
         let attitude_info: control::A8MiniAtittude = deserialize(&attitude_bytes)?;
         Ok(attitude_info)
+    }
+
+    /// Retrieves photo count from the camera. 
+    pub async fn get_photo_information(
+        &self,
+    ) -> Result<i32, Box<dyn Error>> {
+        self.send_http_query(control::A8MiniSimpleHTTPQuery::GetMediaCountPhotos)
+            .await?
+            .data
+            .count
+            .ok_or("Unable to extract photo count.".into())
     }
 
     /// Sends a `control::HTTPQuery` and returns the corresponding received `control::HTTPResponse`.
