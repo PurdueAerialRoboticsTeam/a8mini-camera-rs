@@ -66,24 +66,11 @@ impl A8Mini<Connected> {
         &self,
         command: T,
     ) -> Result<(), Box<dyn Error>> {
-        println!(
-            "[COMMAND] Sending command with bytes: {:?}",
-            command.to_bytes()
-        );
-        println!(
-            "[COMMAND] Sending command with DATA_LEN: {:?} | CMD_ID: {:?}",
-            command.to_bytes()[3],
-            command.to_bytes()[7]
-        );
-
         let send_len = self.command_socket.send(command.to_bytes().as_slice()).await?;
 
         if send_len == 0 {
-            println!("[COMMAND] No bytes sent.");
             return Err("No bytes sent.".into());
         }
-
-        println!("[COMMAND] Sent {} bytes successfully.", send_len);
 
         Ok(())
     }
@@ -96,22 +83,15 @@ impl A8Mini<Connected> {
         self.send_command_blind(command).await?;
         let mut recv_buffer = [0; constants::RECV_BUFF_SIZE];
 
-        println!("[COMMAND] Waiting for response.");
-
         let recv_len = timeout(
             constants::RECV_TIMEOUT,
             self.command_socket.recv(&mut recv_buffer),
         )
         .await??;
         if recv_len == 0 {
-            println!("[COMMAND] No bytes received.");
             return Err("No bytes received.".into());
         }
 
-        println!(
-            "[COMMAND] Response of size {} received successfully: {:?}",
-            recv_len, recv_buffer
-        );
         Ok(recv_buffer)
     }
 
@@ -139,10 +119,7 @@ impl A8Mini<Connected> {
         query: T,
     ) -> Result<control::HTTPResponse, Box<dyn Error>> {
         let response = reqwest::get(query.to_string()).await?;
-        println!("[HTTP] Waiting for response.");
-
         let json = response.json::<control::HTTPResponse>().await?;
-        println!("[HTTP] Received response.");
         Ok(json)
     }
 
@@ -152,10 +129,7 @@ impl A8Mini<Connected> {
         query: T,
     ) -> Result<Vec<u8>, Box<dyn Error>> {
         let response = reqwest::get(query.to_string()).await?;
-        println!("[HTTP] Waiting for response.");
-
         let image_bytes = response.bytes().await?;
-        println!("[HTTP] Received response.");
         Ok(image_bytes.to_vec())
     }
 }
