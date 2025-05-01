@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::io;
 
+use a8mini_camera_rs::camerastatus::Connected;
 use a8mini_camera_rs::control::{A8MiniSimpleCommand, A8MiniComplexCommand};
 use a8mini_camera_rs::A8Mini;
 
@@ -78,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if simple_command_enum.is_some() {
       println!("Sending Simple Command {:?}", simple_command_enum.unwrap());
-      let camera: A8Mini = A8Mini::connect().await?;
+      let camera: A8Mini<Connected> = A8Mini::connect().await?;
       camera.send_command_blind(simple_command_enum.unwrap()).await?;
       continue;
     }
@@ -99,7 +100,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if complex_command_enum.is_some() {
       println!("Sending Complex Command {:?}", complex_command_enum.unwrap());
-      let camera: A8Mini = A8Mini::connect().await?;
+      let camera: A8Mini<Connected> = A8Mini::connect().await?;
       camera.send_command_blind(complex_command_enum.unwrap()).await?;
       continue;
     }

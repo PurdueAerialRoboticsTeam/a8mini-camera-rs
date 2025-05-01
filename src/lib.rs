@@ -1,24 +1,29 @@
 #![allow(non_snake_case)]
 
-use bincode::deserialize;
-use std::error::Error;
-use tokio::{net::UdpSocket, time::timeout};
-
+pub mod camerastatus;
 pub mod checksum;
 pub mod constants;
 pub mod control;
 
+use bincode::deserialize;
+use camerastatus::{Connected, Disconnected};
+use std::error::Error;
+use tokio::{net::UdpSocket, time::timeout};
+
+
 #[derive(Debug)]
 /// Represents the A8Mini camera API with a dedicate UDP socket for both `Command`s and `HTTPQuery`s.
-pub struct A8Mini {
+pub struct A8Mini<CameraStatus> {
     pub command_socket: UdpSocket,
     pub http_socket: UdpSocket,
+
+    pub status: CameraStatus,
 }
 
-impl A8Mini {
+impl A8Mini<Disconnected> {
     /// Connect to and creates a new `A8Mini` using default ip address `192.168.144.25` and default port 37260 and port 82. 
     /// Remote ports are mapped to port 8080 and port 8088 on local.
-    pub async fn connect() -> Result<Self, Box<dyn Error>> {
+    pub async fn connect() -> Result<A8Mini<Connected>, Box<dyn Error>> {
         Ok(Self::connect_to(
             constants::CAMERA_IP,
             constants::CAMERA_COMMAND_PORT,
@@ -30,16 +35,17 @@ impl A8Mini {
     }
 
     // Connects to and creates a new `A8Mini` given network args.
-    pub async fn connect_to(
+    pub async fn connect_to (
         camera_ip: &str,
         camera_command_port: &str,
         camera_http_port: &str,
         local_command_port: &str,
         local_http_port: &str,
-    ) -> Result<A8Mini, Box<dyn Error>> {
-        let camera: A8Mini = A8Mini {
+    ) -> Result<A8Mini<Connected>, Box<dyn Error>> {
+        let camera: A8Mini<Connected> = A8Mini::<Connected> {
             command_socket: UdpSocket::bind(format!("0.0.0.0:{}", local_command_port)).await?,
             http_socket: UdpSocket::bind(format!("0.0.0.0:{}", local_http_port)).await?,
+            status: Connected {},
         };
 
         camera
@@ -52,7 +58,9 @@ impl A8Mini {
             .await?;
         Ok(camera)
     }
+}
 
+impl A8Mini<Connected> {
     /// Sends a `control::Command` blind. This should be used for all commands that don't have a ACK.
     pub async fn send_command_blind<T: control::Command>(
         &self,
@@ -107,8 +115,14 @@ impl A8Mini {
         Ok(recv_buffer)
     }
 
+    /// Verify that camera is connected
+    pub async fn ping(
+        &self,
+    ) -> bool {
+        self.get_attitude_information().await.is_ok()
+    }
+
     /// Retrieves attitude information from the camera. 
-    /// Can be used as a system connectivity check.
     pub async fn get_attitude_information(
         &self,
     ) -> Result<control::A8MiniAtittude, Box<dyn Error>> {
@@ -160,7 +174,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_take_and_download_photo() -> Result<(), Box<dyn Error>> {
-        let cam: A8Mini = A8Mini::connect().await?;
+        let cam: A8Mini<Connected> = A8Mini::connect().await?;
 
         cam.send_command(control::A8MiniSimpleCommand::TakePicture)
             .await?;
@@ -185,7 +199,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_send_simple_commands_blind() -> Result<(), Box<dyn Error>> {
-        let cam: A8Mini = A8Mini::connect().await?;
+        let cam: A8Mini<Connected> = A8Mini::connect().await?;
 
         cam.send_command_blind(control::A8MiniSimpleCommand::RotateLeft).await?;
         sleep(Duration::from_millis(500));
@@ -214,7 +228,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_send_complex_commands_blind() -> Result<(), Box<dyn Error>> {
-        let cam: A8Mini = A8Mini::connect().await?;
+        let cam: A8Mini<Connected> = A8Mini::connect().await?;
 
         cam.send_command_blind(control::A8MiniComplexCommand::SetYawPitchSpeed(50, 50)).await?;
         sleep(Duration::from_millis(1000));
@@ -250,7 +264,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_send_command_with_ack() -> Result<(), Box<dyn Error>> {
-        let cam: A8Mini = A8Mini::connect().await?;
+        let cam: A8Mini<Connected> = A8Mini::connect().await?;
         println!("{:?}", cam.get_attitude_information().await?);
         Ok(())
     }
@@ -258,7 +272,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn aarya_tests() -> Result<(), Box<dyn Error>> {
-        let cam: A8Mini = A8Mini::connect().await?;
+        let cam: A8Mini<Connected> = A8Mini::connect().await?;
         // cam.send_command_blind(A8MiniComplexCommand::SetYawPitchAngle(0, 900)).await?;
         // cam.send_command_blind(A8MiniSimpleCommand::RecordVideo).await?;
         // println!("{:?}", cam.send_http_query(A8MiniSimpleHTTPQuery::GetMediaCountVideos).await?);
