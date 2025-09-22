@@ -105,6 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
       "RebootGimbal" => Some(A8MiniSimpleCommand::RebootGimbal),
       "Resolution4k" => Some(A8MiniSimpleCommand::Resolution4k),
       "Heartbeat" => Some(A8MiniSimpleCommand::Heartbeat),
+      // TODO: when adding a new SimpleCommand, add it here so we can run it from command line easily
       _ => None,
     };
 
@@ -138,6 +139,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let stream_type: u8 = destructured_command[1].parse().unwrap_or(0);
         Some(A8MiniComplexCommand::SetCodecSpecs(stream_type, 2, 3840, 2160, 50000, 0))
       },
+      // TODO: when adding a new ComplexCommand, add it here so we can run it from command line easily
       _ => None,
     };
 

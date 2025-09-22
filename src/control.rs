@@ -46,6 +46,7 @@ pub enum A8MiniSimpleCommand {
     RebootGimbal = 28,
     Resolution4k = 29,
     Heartbeat = 30,
+    // TODO: add in other useful enums, to add a new SimpleCommand, add hard-coded command bytes to `constants.rs`
 }
 
 impl Command for A8MiniSimpleCommand {
@@ -54,14 +55,20 @@ impl Command for A8MiniSimpleCommand {
     }
 }
 
+// TODO: please check out https://siyi.biz/siyi_file/A8%20mini/A8%20mini%20User%20Manual%20v1.6.pdf for the manual,
+// then scroll down to `3.5.2 SDK Communication Commands` (page 45) for SDK details.
+
 /// Enums for commands that require continuous values for data field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum A8MiniComplexCommand {
     SetYawPitchSpeed(i8, i8),
     SetYawPitchAngle(i16, i16),
     SetTimeUTC(u64),
-    GetCodecSpecs(u8), // TODO: WIP
-    SetCodecSpecs(u8, u8, u16, u16, u16, u8), // TODO: WIP
+    GetCodecSpecs(u8), // TODO: WIP, high priority command, currently wrong byte format, please see lines 104-110
+    SetCodecSpecs(u8, u8, u16, u16, u16, u8), // TODO: WIP, high priority command, currently wrong byte format, please see lines 111-125
+
+    // TODO: WIP, add in other useful enums
+    // - When adding a new enum, make sure to add a corresponding "command" in `main.rs` allowing us to run it easily
 }
 
 impl Command for A8MiniComplexCommand {
