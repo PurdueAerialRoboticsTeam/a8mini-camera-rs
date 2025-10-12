@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::io;
 
 use a8mini_camera_rs::control::{A8MiniComplexCommand, A8MiniSimpleCommand, A8MiniSimpleHTTPQuery, A8MiniComplexHTTPQuery};
@@ -59,7 +58,7 @@ fn print_ascii_command_table() {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> anyhow::Result<()> {
   print_ascii_command_table();
   
   loop {

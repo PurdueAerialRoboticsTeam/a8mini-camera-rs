@@ -9,6 +9,7 @@ readme = "README.md"
 keywords = ["rust", "siyi", "a8mini", "gimbal", "camera"]
 
 [dependencies]
+anyhow = "1.0.100"
 bincode = "1.3"
 bytes = "1"
 chrono = { version = "0.4.39", features = ["serde"] }

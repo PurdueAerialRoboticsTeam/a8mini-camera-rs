@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
+use anyhow::anyhow;
 use bincode::deserialize;
-use std::error::Error;
 use tokio::{net::UdpSocket, time::timeout};
 
 pub mod checksum;
@@ -18,7 +18,7 @@ pub struct A8Mini {
 impl A8Mini {
     /// Connect to and creates a new `A8Mini` using default ip address `192.168.144.25` and default port 37260 and port 82. 
     /// Remote ports are mapped to port 8080 and port 8088 on local.
-    pub async fn connect() -> Result<Self, Box<dyn Error>> {
+    pub async fn connect() -> anyhow::Result<Self> {
         Ok(Self::connect_to(
             constants::CAMERA_IP,
             constants::CAMERA_COMMAND_PORT,
@@ -32,7 +32,7 @@ impl A8Mini {
     /// Repeatedly tries to reconnect a total of `max_iter`` times
     pub async fn connect_yapping(
         max_iter: i32,
-    ) -> Result<A8Mini, Box<dyn Error>> {
+    ) -> anyhow::Result<Self> {
         for _ in 1..max_iter {
             let connect_attempt = Self::connect().await;
             if connect_attempt.is_ok() {
@@ -40,7 +40,7 @@ impl A8Mini {
             }
         }
 
-        Err("max_iter reached".into())
+        Err(anyhow!("max_iter reached".to_string()))
     }
 
     /// Connects to and creates a new `A8Mini` given network args.
@@ -50,7 +50,7 @@ impl A8Mini {
         camera_http_port: &str,
         local_command_port: &str,
         local_http_port: &str,
-    ) -> Result<A8Mini, Box<dyn Error>> {
+    ) -> anyhow::Result<Self> {
         let camera: A8Mini = A8Mini {
             command_socket: UdpSocket::bind(format!("0.0.0.0:{}", local_command_port)).await?,
             http_socket: UdpSocket::bind(format!("0.0.0.0:{}", local_http_port)).await?,
@@ -71,7 +71,7 @@ impl A8Mini {
     pub async fn send_command_blind<T: control::Command>(
         &self,
         command: T,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> anyhow::Result<()> {
         println!(
             "[COMMAND] Sending command with bytes: {:?}",
             command.to_bytes()
@@ -86,7 +86,7 @@ impl A8Mini {
 
         if send_len == 0 {
             println!("[COMMAND] No bytes sent.");
-            return Err("No bytes sent.".into());
+            return Err(anyhow!("No bytes sent.".to_string()));
         }
 
         println!("[COMMAND] Sent {} bytes successfully.", send_len);
@@ -98,7 +98,7 @@ impl A8Mini {
     pub async fn send_command<T: control::Command>(
         &self,
         command: T,
-    ) -> Result<[u8; constants::RECV_BUFF_SIZE], Box<dyn Error>> {
+    ) -> anyhow::Result<[u8; constants::RECV_BUFF_SIZE]> {
         self.send_command_blind(command).await?;
         let mut recv_buffer = [0; constants::RECV_BUFF_SIZE];
 
@@ -111,7 +111,7 @@ impl A8Mini {
         .await??;
         if recv_len == 0 {
             println!("[COMMAND] No bytes received.");
-            return Err("No bytes received.".into());
+            return Err(anyhow!("No bytes received.".to_string()));
         }
 
         println!(
@@ -125,7 +125,7 @@ impl A8Mini {
     /// Can be used as a system connectivity check.
     pub async fn get_attitude_information(
         &self,
-    ) -> Result<control::A8MiniAtittude, Box<dyn Error>> {
+    ) -> anyhow::Result<control::A8MiniAtittude> {
         let attitude_bytes = self
             .send_command(control::A8MiniSimpleCommand::AttitudeInformation)
             .await?;
@@ -137,7 +137,7 @@ impl A8Mini {
     pub async fn send_http_query<T: control::HTTPQuery>(
         &self,
         query: T,
-    ) -> Result<control::HTTPResponse, Box<dyn Error>> {
+    ) -> anyhow::Result<control::HTTPResponse> {
         let response = reqwest::get(query.to_string()).await?;
         println!("[HTTP] Waiting for response.");
 
@@ -150,7 +150,7 @@ impl A8Mini {
     pub async fn send_http_media_query<T: control::HTTPQuery>(
         &self,
         query: T,
-    ) -> Result<Vec<u8>, Box<dyn Error>> {
+    ) -> anyhow::Result<Vec<u8>> {
         let response = reqwest::get(query.to_string()).await?;
         println!("[HTTP] Waiting for response.");
 
@@ -163,7 +163,6 @@ impl A8Mini {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control::*;
 
     use std::thread::sleep;
     use std::time::Duration;
@@ -173,7 +172,7 @@ mod tests {
 
     #[ignore]
     #[tokio::test]
-    async fn test_take_and_download_photo() -> Result<(), Box<dyn Error>> {
+    async fn test_take_and_download_photo() -> anyhow::Result<()> {
         let cam: A8Mini = A8Mini::connect().await?;
 
         cam.send_command(control::A8MiniSimpleCommand::TakePicture)
@@ -198,7 +197,7 @@ mod tests {
 
     #[ignore]
     #[tokio::test]
-    async fn test_send_simple_commands_blind() -> Result<(), Box<dyn Error>> {
+    async fn test_send_simple_commands_blind() -> anyhow::Result<()> {
         let cam: A8Mini = A8Mini::connect().await?;
 
         cam.send_command_blind(control::A8MiniSimpleCommand::RotateLeft).await?;
@@ -227,7 +226,7 @@ mod tests {
 
     #[ignore]
     #[tokio::test]
-    async fn test_send_complex_commands_blind() -> Result<(), Box<dyn Error>> {
+    async fn test_send_complex_commands_blind() -> anyhow::Result<()> {
         let cam: A8Mini = A8Mini::connect().await?;
 
         cam.send_command_blind(control::A8MiniComplexCommand::SetYawPitchSpeed(50, 50)).await?;
@@ -263,28 +262,9 @@ mod tests {
 
     #[ignore]
     #[tokio::test]
-    async fn test_send_command_with_ack() -> Result<(), Box<dyn Error>> {
+    async fn test_send_command_with_ack() -> anyhow::Result<()> {
         let cam: A8Mini = A8Mini::connect().await?;
         println!("{:?}", cam.get_attitude_information().await?);
-        Ok(())
-    }
-
-    #[ignore]
-    #[tokio::test]
-    async fn aarya_tests() -> Result<(), Box<dyn Error>> {
-        let cam: A8Mini = A8Mini::connect().await?;
-        // cam.send_command_blind(A8MiniComplexCommand::SetYawPitchAngle(0, 900)).await?;
-        // cam.send_command_blind(A8MiniSimpleCommand::RecordVideo).await?;
-        // println!("{:?}", cam.send_http_query(A8MiniSimpleHTTPQuery::GetMediaCountVideos).await?);
-
-        // cam.send_command_blind(A8MiniComplexCommand::SetCodecSpecs(0, 2, 1920, 1080, 4000, 0)).await?;
-
-        // cam.send_command_blind(A8MiniSimpleCommand::Resolution4k).await?;
-        cam.send_command_blind(A8MiniSimpleCommand::RecordVideo).await?;
-        // sleep(Duration::from_millis(10000));
-        // cam.send_command_blind(A8MiniSimpleCommand::RecordVideo).await?;
-        
-
         Ok(())
     }
 }
