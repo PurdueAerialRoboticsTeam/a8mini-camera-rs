@@ -3,6 +3,7 @@
 use anyhow::anyhow;
 use bincode::deserialize;
 use tokio::{net::UdpSocket, time::timeout};
+use tracing::{debug, error, info};
 
 pub mod checksum;
 pub mod constants;
@@ -51,6 +52,12 @@ impl A8Mini {
         local_command_port: &str,
         local_http_port: &str,
     ) -> anyhow::Result<Self> {
+        debug!(
+            "Binding command_socket to {} and http_socket to {}.",
+            format!("0.0.0.0:{}", local_command_port),
+            format!("0.0.0.0:{}", local_http_port)
+        );
+
         let camera: A8Mini = A8Mini {
             command_socket: UdpSocket::bind(format!("0.0.0.0:{}", local_command_port)).await?,
             http_socket: UdpSocket::bind(format!("0.0.0.0:{}", local_http_port)).await?,
@@ -60,10 +67,14 @@ impl A8Mini {
             .command_socket
             .connect(format!("{}:{}", camera_ip, camera_command_port))
             .await?;
+        info!("Connected a8mini command_socket.");
+
         camera
             .http_socket
             .connect(format!("{}:{}", camera_ip, camera_http_port))
             .await?;
+        info!("Connected a8mini http_socket.");
+
         Ok(camera)
     }
 
@@ -72,12 +83,13 @@ impl A8Mini {
         &self,
         command: T,
     ) -> anyhow::Result<()> {
-        println!(
-            "[COMMAND] Sending command with bytes: {:?}",
+        debug!(
+            "Sending command with bytes: {:?}",
             command.to_bytes()
         );
-        println!(
-            "[COMMAND] Sending command with DATA_LEN: {:?} | CMD_ID: {:?}",
+
+        debug!(
+            "Sending command with DATA_LEN: {:?} and CMD_ID: {:?}",
             command.to_bytes()[3],
             command.to_bytes()[7]
         );
@@ -85,11 +97,11 @@ impl A8Mini {
         let send_len = self.command_socket.send(command.to_bytes().as_slice()).await?;
 
         if send_len == 0 {
-            println!("[COMMAND] No bytes sent.");
-            return Err(anyhow!("No bytes sent.".to_string()));
+            error!("No command bytes sent.");
+            return Err(anyhow!("No command bytes sent.".to_string()));
         }
 
-        println!("[COMMAND] Sent {} bytes successfully.", send_len);
+        debug!("Sent {} command bytes successfully.", send_len);
 
         Ok(())
     }
@@ -102,7 +114,7 @@ impl A8Mini {
         self.send_command_blind(command).await?;
         let mut recv_buffer = [0; constants::RECV_BUFF_SIZE];
 
-        println!("[COMMAND] Waiting for response.");
+        debug!("Waiting for command response.");
 
         let recv_len = timeout(
             constants::RECV_TIMEOUT,
@@ -110,14 +122,16 @@ impl A8Mini {
         )
         .await??;
         if recv_len == 0 {
-            println!("[COMMAND] No bytes received.");
+            error!("No command bytes received.");
             return Err(anyhow!("No bytes received.".to_string()));
         }
 
-        println!(
-            "[COMMAND] Response of size {} received successfully: {:?}",
-            recv_len, recv_buffer
+        debug!(
+            "Command response of size {} received successfully: {:?}",
+            recv_len, 
+            recv_buffer
         );
+
         Ok(recv_buffer)
     }
 
@@ -139,10 +153,10 @@ impl A8Mini {
         query: T,
     ) -> anyhow::Result<control::HTTPResponse> {
         let response = reqwest::get(query.to_string()).await?;
-        println!("[HTTP] Waiting for response.");
+        debug!("Waiting for HTTP response.");
 
         let json = response.json::<control::HTTPResponse>().await?;
-        println!("[HTTP] Received response.");
+        debug!("Received HTTP response.");
         Ok(json)
     }
 
@@ -152,10 +166,10 @@ impl A8Mini {
         query: T,
     ) -> anyhow::Result<Vec<u8>> {
         let response = reqwest::get(query.to_string()).await?;
-        println!("[HTTP] Waiting for response.");
+        info!("Waiting for HTTP response.");
 
         let image_bytes = response.bytes().await?;
-        println!("[HTTP] Received response.");
+        info!("Received HTTP response.");
         Ok(image_bytes.to_vec())
     }
 }

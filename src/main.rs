@@ -5,6 +5,7 @@ use a8mini_camera_rs::A8Mini;
 use chrono::Utc;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tracing::Level;
 
 
 fn print_ascii_command_table() {
@@ -59,6 +60,8 @@ fn print_ascii_command_table() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+  tracing_subscriber::fmt().with_max_level(Level::DEBUG).init();
+  
   print_ascii_command_table();
   
   loop {
