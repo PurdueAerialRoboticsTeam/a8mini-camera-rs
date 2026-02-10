@@ -141,9 +141,9 @@ async fn main() -> anyhow::Result<()> {
         if simple_command_enum.is_some() {
             println!("Sending Simple Command {:?}", simple_command_enum.unwrap());
             let camera: A8Mini = A8Mini::connect().await?;
-            camera
-                .send_command_blind(simple_command_enum.unwrap())
-                .await?;
+            if let Ok(response) = camera.send_command(simple_command_enum.unwrap()).await {
+                println!("Received Response {:?}", response);
+            }
             continue;
         }
 
