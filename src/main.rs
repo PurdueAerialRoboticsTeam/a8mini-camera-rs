@@ -143,6 +143,8 @@ async fn main() -> anyhow::Result<()> {
             let camera: A8Mini = A8Mini::connect().await?;
             if let Ok(response) = camera.send_command(simple_command_enum.unwrap()).await {
                 println!("Received Response {:?}", response);
+            } else {
+                println!("Failed to receive response");
             }
             continue;
         }
