@@ -1,13 +1,15 @@
-use std::io;
+use std::io::{self, Write}; // Added Write for stdout flushing
 
 use a8mini_camera_rs::control::{
     A8MiniComplexCommand, A8MiniComplexHTTPQuery, A8MiniSimpleCommand, A8MiniSimpleHTTPQuery,
+    A8MiniAttitude,
 };
 use a8mini_camera_rs::A8Mini;
 use chrono::Utc;
-use tokio::fs::File;
+use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncWriteExt;
 use tracing::Level;
+use bincode::deserialize;
 
 fn print_ascii_command_table() {
     let simple_commands = [
@@ -51,6 +53,7 @@ fn print_ascii_command_table() {
         "SetTimeUTC(u64)",
         "GetCodecSpecs(u8)",
         "SetCodecSpecs(u8, u8, u16, u16, u16, u8)",
+        "LogAttitudeStream", 
     ];
 
     let simple_queries = [
@@ -93,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         let full_command: &str;
-        println!("Awaiting command:");
+        println!("Awaiting command: ");
         let stdin = io::stdin();
         let buf = &mut String::new();
         stdin.read_line(buf)?;
@@ -101,6 +104,77 @@ async fn main() -> anyhow::Result<()> {
 
         let destructured_command: Vec<&str> = full_command.split(" ").collect();
         let command: &str = destructured_command[0];
+
+        // GIMBAL ATTITUDE INFORMATION LOGGING TEST WITH 100 HZ
+        if command == "LogAttitudeStream" {
+            println!("Starting 100Hz Attitude Stream & Logging...");
+            let camera = A8Mini::connect().await?;
+
+            // create log file
+            let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let filename = format!("attitude_log_{}.csv", timestamp);
+            
+            // use OpenOptions to create/append
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&filename)
+                .await?;
+
+            // write CSV Header
+            file.write_all(b"Timestamp,Yaw,Pitch,Roll,V_Yaw,V_Pitch,V_Roll\n").await?;
+            println!("Logging to: {}", filename);
+
+            // send Command 0x25: Type=1 (Attitude), Freq=7 (100Hz) check documentation for more info
+            let start_stream_cmd = A8MiniComplexCommand::RequestGimbalDataStream(1, 7);
+            camera.send_command_blind(start_stream_cmd).await?;
+            println!("Stream request sent. Listening for data... (Press Ctrl+C to stop)");
+
+            // ifinite Loop to Catch & Log Packets
+            let mut buffer = [0u8; 64];
+            loop {
+                // wait for packet directly from the socket
+                let (len, _) = camera.command_socket.recv_from(&mut buffer).await?;
+                
+                if len > 0 {
+                    // Check if it is an Attitude Packet.
+                    // 0x0D is 13 in decimal (AttitudeInformation).
+                    if len >= 20 && buffer[7] == 0x0D {
+                        //(Skip 8 byte header)
+                        let data_slice = &buffer[8..20];
+                        
+                        if let Ok(attitude) = deserialize::<A8MiniAttitude>(data_slice) {
+                            // convert to degrees (divide by 10.0)
+                            let yaw = attitude.theta_yaw as f32 / 10.0;
+                            let pitch = attitude.theta_pitch as f32 / 10.0;
+                            let roll = attitude.theta_roll as f32 / 10.0;
+                            
+                            // log to console (Human Readable Dashboard)
+                            print!("\rAttitude: Y: {:>6.1} | P: {:>6.1} | R: {:>6.1}", yaw, pitch, roll);
+                            io::stdout().flush().unwrap();
+
+                            /*
+                            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                             
+                             PLEASE MAKE SURE TO COMMENT THE ABOVE TWO LINES IF YOU DO NOT NEED IMMEDIATE CONSOLE LOGGING FOR ATTITUDE INFORMATION BECAUSE IT'S GOING TO SPAM A LOT ESPECIALLY WITH HIGH HZ VALUES
+
+                            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                             */
+
+                            // log to csv file
+                            let log_line = format!(
+                                "{},{},{},{},{},{},{}\n",
+                                Utc::now().to_rfc3339(),
+                                yaw, pitch, roll,
+                                attitude.v_yaw, attitude.v_pitch, attitude.v_roll
+                            );
+                            file.write_all(log_line.as_bytes()).await?;
+                        }
+                    }
+                }
+            }
+        }
+        // end of logging block
 
         let simple_command_enum: Option<A8MiniSimpleCommand> = match command {
             "AutoCenter" => Some(A8MiniSimpleCommand::AutoCenter),

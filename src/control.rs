@@ -63,6 +63,7 @@ pub enum A8MiniComplexCommand {
     SetTimeUTC(u64),
     GetCodecSpecs(u8),                        // TODO: WIP
     SetCodecSpecs(u8, u8, u16, u16, u16, u8), // TODO: WIP
+    RequestGimbalDataStream(u8, u8),          // gimbal data stream
 }
 
 impl Command for A8MiniComplexCommand {
@@ -122,6 +123,17 @@ impl Command for A8MiniComplexCommand {
                 // TODO: make sure video bitrate is reasonable
                 byte_arr.extend_from_slice(&video_bitrate.to_be_bytes());
 
+                byte_arr
+            }
+            // implementation for 0x25 Request Gimbal Data Stream
+            A8MiniComplexCommand::RequestGimbalDataStream(data_type, data_freq) => {
+                // Header (STX + CTRL + DataLen=2 + Seq=0 + CmdID=0x25)
+                let mut byte_arr: Vec<u8> = vec![0x55, 0x66, 0x01, 0x02, 0x00, 0x00, 0x00, 0x25];
+                
+                byte_arr.push(data_type);
+                byte_arr.push(data_freq);
+                
+                byte_arr.extend_from_slice(&checksum::crc16_calc(&byte_arr, 0));
                 byte_arr
             }
         }
@@ -248,7 +260,7 @@ mod tests {
             0x28, 0x00, 0x32, 0x00, 0x3c, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00,
         ];
 
-        // Note: little endian deserialize
+        //little endian deserialize
         let computed_attitude_info: A8MiniAttitude = bincode::deserialize(attitude_bytes).unwrap();
 
         let expected_attitude_info = A8MiniAttitude {
