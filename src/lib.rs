@@ -139,11 +139,19 @@ impl A8Mini {
     /// Can be used as a system connectivity check.
     pub async fn get_attitude_information(
         &self,
-    ) -> anyhow::Result<control::A8MiniAtittude> {
-        let attitude_bytes = self
+    ) -> anyhow::Result<control::A8MiniAttitude> {
+        let response = self
             .send_command(control::A8MiniSimpleCommand::AttitudeInformation)
             .await?;
-        let attitude_info: control::A8MiniAtittude = deserialize(&attitude_bytes)?;
+
+        
+        if response.len() < 20 {
+             return Err(anyhow::anyhow!("Response too short to contain attitude data"));
+        }
+        
+        let data_slice = &response[8..20];
+        let attitude_info: control::A8MiniAttitude = deserialize(data_slice)?;
+        
         Ok(attitude_info)
     }
 

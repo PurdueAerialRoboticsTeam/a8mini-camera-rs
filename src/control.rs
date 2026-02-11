@@ -1,5 +1,6 @@
 use crate::{checksum, constants};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Trait for camera commands
 pub trait Command {
@@ -196,13 +197,27 @@ pub struct HTTPResponseData {
 
 /// Camera attitude information
 #[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct A8MiniAtittude {
+pub struct A8MiniAttitude {
     pub theta_yaw: i16,
     pub theta_pitch: i16,
     pub theta_roll: i16,
     pub v_yaw: i16,
     pub v_pitch: i16,
     pub v_roll: i16,
+}
+
+impl fmt::Display for A8MiniAttitude {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let yaw_deg = self.theta_yaw as f32 / 10.0;
+        let pitch_deg = self.theta_pitch as f32 / 10.0;
+        let roll_deg = self.theta_roll as f32 / 10.0;
+
+        write!(
+            f,
+            "GIMBAL ATTITUDE:\n\tYaw:   {:.1}°\n\tPitch: {:.1}°\n\tRoll:  {:.1}°\n\t(Speeds: Y={}, P={}, R={})",
+            yaw_deg, pitch_deg, roll_deg, self.v_yaw, self.v_pitch, self.v_roll
+        )
+    }
 }
 
 #[cfg(test)]
@@ -234,9 +249,9 @@ mod tests {
         ];
 
         // Note: little endian deserialize
-        let computed_attitude_info: A8MiniAtittude = bincode::deserialize(attitude_bytes).unwrap();
+        let computed_attitude_info: A8MiniAttitude = bincode::deserialize(attitude_bytes).unwrap();
 
-        let expected_attitude_info = A8MiniAtittude {
+        let expected_attitude_info = A8MiniAttitude {
             theta_yaw: 40,
             theta_pitch: 50,
             theta_roll: 60,

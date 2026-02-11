@@ -138,13 +138,21 @@ async fn main() -> anyhow::Result<()> {
             _ => None,
         };
 
-        if simple_command_enum.is_some() {
-            println!("Sending Simple Command {:?}", simple_command_enum.unwrap());
+        if let Some(cmd) = simple_command_enum {
+            println!("Sending Simple Command {:?}", cmd);
             let camera: A8Mini = A8Mini::connect().await?;
-            if let Ok(response) = camera.send_command(simple_command_enum.unwrap()).await {
-                println!("Received Response {:?}", response);
+
+            if cmd == A8MiniSimpleCommand::AttitudeInformation {
+                match camera.get_attitude_information().await {
+                    Ok(info) => println!("{}", info), 
+                    Err(e) => println!("Failed to get attitude: {:?}", e),
+                }
             } else {
-                println!("Failed to receive response");
+                if let Ok(response) = camera.send_command(cmd).await {
+                    println!("Received Response {:?}", response);
+                } else {
+                    println!("Failed to receive response");
+                }
             }
             continue;
         }
