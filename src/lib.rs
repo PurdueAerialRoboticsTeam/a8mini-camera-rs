@@ -154,6 +154,23 @@ impl A8Mini {
         
         Ok(attitude_info)
     }
+    
+    pub async fn get_firmware_version(&self) -> anyhow::Result<control::A8MiniFirmwareVersion> {
+        let response = self
+            .send_command(control::A8MiniSimpleCommand::FirmwareVersionInformation)
+            .await?;
+
+        // Header is 8 bytes. Payload is 8 bytes. Total packet should be at least 16 bytes.
+        if response.len() < 16 {
+             return Err(anyhow::anyhow!("Response too short for firmware version"));
+        }
+        
+        // Slice the payload (Indices 8 to 16)
+        let data_slice = &response[8..16];
+        let version_info: control::A8MiniFirmwareVersion = deserialize(data_slice)?;
+        
+        Ok(version_info)
+    }
 
     /// Sends a `control::HTTPQuery` and returns the corresponding received `control::HTTPResponse`.
     pub async fn send_http_query<T: control::HTTPQuery>(

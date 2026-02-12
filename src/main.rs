@@ -106,7 +106,6 @@ async fn main() -> anyhow::Result<()> {
         let command: &str = destructured_command[0];
 
         // GIMBAL ATTITUDE INFORMATION LOGGING TEST WITH 100 HZ
-        // GIMBAL ATTITUDE INFORMATION LOGGING TEST WITH 100 HZ
         if command == "LogAttitudeStream" {
             println!("Starting 100Hz Attitude Stream & Logging...");
             let camera = A8Mini::connect().await?;
@@ -131,16 +130,12 @@ async fn main() -> anyhow::Result<()> {
             camera.send_command_blind(start_stream_cmd).await?;
             println!("Request sent. Entering receive loop... (Press Ctrl+C to stop)");
 
-            let mut buffer = [0u8; 128]; // Increased buffer size just in case
+            let mut buffer = [0u8; 128]; 
             loop {
-                // Wait for packet
-                // If the terminal hangs here and prints NOTHING, the camera is sending 0 packets.
                 let (len, _) = camera.command_socket.recv_from(&mut buffer).await?;
                 
                 if len > 0 {
-                    let cmd_id = buffer[7]; // Byte 7 is always CMD_ID in SIYI protocol
-
-                    
+                    let cmd_id = buffer[7]; 
 
                     // Check if it is an Attitude Packet (0x0D / 13)
                     if cmd_id == 0x0D {
@@ -168,11 +163,7 @@ async fn main() -> anyhow::Result<()> {
                         } else {
                             println!("\nWARN: Received Attitude packet (0x0D) but len was too short: {}", len);
                         }
-                    } else {
-                        // UNCOMMENT THIS TO SEE WHY IT'S FAILING
-                        // This will tell you what packet IDs you ARE receiving instead of Attitude
-                         println!("\nIgnored Packet. ID: 0x{:02X} (Length: {})", cmd_id, len);
-                    }
+                    } 
                 }
             }
         }
@@ -214,6 +205,7 @@ async fn main() -> anyhow::Result<()> {
             _ => None,
         };
 
+        // --- I DELETED THE DUPLICATE BLOCK HERE. THIS IS THE ONE WE KEEP: ---
         if let Some(cmd) = simple_command_enum {
             println!("Sending Simple Command {:?}", cmd);
             let camera: A8Mini = A8Mini::connect().await?;
@@ -223,7 +215,15 @@ async fn main() -> anyhow::Result<()> {
                     Ok(info) => println!("{}", info), 
                     Err(e) => println!("Failed to get attitude: {:?}", e),
                 }
-            } else {
+            } 
+            // THIS HANDLES FIRMWARE VERSION
+            else if cmd == A8MiniSimpleCommand::FirmwareVersionInformation {
+                match camera.get_firmware_version().await {
+                    Ok(info) => println!("{}", info),
+                    Err(e) => println!("Failed to get firmware version: {:?}", e),
+                }
+            } 
+            else {
                 if let Ok(response) = camera.send_command(cmd).await {
                     println!("Received Response {:?}", response);
                 } else {
@@ -335,10 +335,7 @@ async fn main() -> anyhow::Result<()> {
                         .await?
                         .write_all(&video_bytes)
                         .await?;
-                } // _ => {
-                  //   let response = camera.send_http_query(complex_query).await?;
-                  //   println!("{:?}", response);
-                  // }
+                }
             };
 
             continue;

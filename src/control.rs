@@ -207,6 +207,34 @@ pub struct HTTPResponseData {
     pub list: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct A8MiniFirmwareVersion {
+    // Camera Code Version (Bytes 8-11)
+    pub code_ver_byte0: u8, // Patch
+    pub code_ver_byte1: u8, // Minor
+    pub code_ver_byte2: u8, // Major
+    pub code_ver_byte3: u8, // Rev
+
+    // Gimbal Version (Bytes 12-15)
+    pub gimbal_ver_byte0: u8, // Patch (e.g. 4)
+    pub gimbal_ver_byte1: u8, // Minor (e.g. 4)
+    pub gimbal_ver_byte2: u8, // Major (e.g. 0)
+    pub gimbal_ver_byte3: u8, // Rev   (e.g. 115)
+}
+
+impl fmt::Display for A8MiniFirmwareVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Display format: Major.Minor.Patch
+        write!(
+            f,
+            "FIRMWARE VERSION:\n\tCamera: {}.{}.{}\n\tGimbal: {}.{}.{} (Build {})",
+            // Camera
+            self.code_ver_byte2, self.code_ver_byte1, self.code_ver_byte0,
+            // Gimbal: Byte2 is Major (0), Byte1 is Minor (4), Byte0 is Patch (4)
+            self.gimbal_ver_byte2, self.gimbal_ver_byte1, self.gimbal_ver_byte0, self.gimbal_ver_byte3
+        )
+    }
+}
 /// Camera attitude information
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 pub struct A8MiniAttitude {
