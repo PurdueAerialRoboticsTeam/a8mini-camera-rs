@@ -106,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         let command: &str = destructured_command[0];
 
         // GIMBAL ATTITUDE INFORMATION LOGGING TEST WITH 100 HZ
+        // GIMBAL ATTITUDE INFORMATION LOGGING TEST WITH 100 HZ
         if command == "LogAttitudeStream" {
             println!("Starting 100Hz Attitude Stream & Logging...");
             let camera = A8Mini::connect().await?;
@@ -114,7 +115,6 @@ async fn main() -> anyhow::Result<()> {
             let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string();
             let filename = format!("attitude_log_{}.csv", timestamp);
             
-            // use OpenOptions to create/append
             let mut file = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -125,51 +125,53 @@ async fn main() -> anyhow::Result<()> {
             file.write_all(b"Timestamp,Yaw,Pitch,Roll,V_Yaw,V_Pitch,V_Roll\n").await?;
             println!("Logging to: {}", filename);
 
-            // send Command 0x25: Type=1 (Attitude), Freq=7 (100Hz) check documentation for more info
+            // Send Command 0x25
+            println!("Sending Stream Request (0x25)...");
             let start_stream_cmd = A8MiniComplexCommand::RequestGimbalDataStream(1, 7);
             camera.send_command_blind(start_stream_cmd).await?;
-            println!("Stream request sent. Listening for data... (Press Ctrl+C to stop)");
+            println!("Request sent. Entering receive loop... (Press Ctrl+C to stop)");
 
-            // ifinite Loop to Catch & Log Packets
-            let mut buffer = [0u8; 64];
+            let mut buffer = [0u8; 128]; // Increased buffer size just in case
             loop {
-                // wait for packet directly from the socket
+                // Wait for packet
+                // If the terminal hangs here and prints NOTHING, the camera is sending 0 packets.
                 let (len, _) = camera.command_socket.recv_from(&mut buffer).await?;
                 
                 if len > 0 {
-                    // Check if it is an Attitude Packet.
-                    // 0x0D is 13 in decimal (AttitudeInformation).
-                    if len >= 20 && buffer[7] == 0x0D {
-                        //(Skip 8 byte header)
-                        let data_slice = &buffer[8..20];
-                        
-                        if let Ok(attitude) = deserialize::<A8MiniAttitude>(data_slice) {
-                            // convert to degrees (divide by 10.0)
-                            let yaw = attitude.theta_yaw as f32 / 10.0;
-                            let pitch = attitude.theta_pitch as f32 / 10.0;
-                            let roll = attitude.theta_roll as f32 / 10.0;
+                    let cmd_id = buffer[7]; // Byte 7 is always CMD_ID in SIYI protocol
+
+                    
+
+                    // Check if it is an Attitude Packet (0x0D / 13)
+                    if cmd_id == 0x0D {
+                        if len >= 20 {
+                             // Skip 8 byte header
+                            let data_slice = &buffer[8..20];
                             
-                            // log to console (Human Readable Dashboard)
-                            print!("\rAttitude: Y: {:>6.1} | P: {:>6.1} | R: {:>6.1}", yaw, pitch, roll);
-                            io::stdout().flush().unwrap();
+                            if let Ok(attitude) = deserialize::<A8MiniAttitude>(data_slice) {
+                                let yaw = attitude.theta_yaw as f32 / 10.0;
+                                let pitch = attitude.theta_pitch as f32 / 10.0;
+                                let roll = attitude.theta_roll as f32 / 10.0;
+                                
+                                // Print valid data
+                                print!("\rAttitude: Y: {:>6.1} | P: {:>6.1} | R: {:>6.1}", yaw, pitch, roll);
+                                io::stdout().flush().unwrap();
 
-                            /*
-                            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                             
-                             PLEASE MAKE SURE TO COMMENT THE ABOVE TWO LINES IF YOU DO NOT NEED IMMEDIATE CONSOLE LOGGING FOR ATTITUDE INFORMATION BECAUSE IT'S GOING TO SPAM A LOT ESPECIALLY WITH HIGH HZ VALUES
-
-                            !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                             */
-
-                            // log to csv file
-                            let log_line = format!(
-                                "{},{},{},{},{},{},{}\n",
-                                Utc::now().to_rfc3339(),
-                                yaw, pitch, roll,
-                                attitude.v_yaw, attitude.v_pitch, attitude.v_roll
-                            );
-                            file.write_all(log_line.as_bytes()).await?;
+                                let log_line = format!(
+                                    "{},{},{},{},{},{},{}\n",
+                                    Utc::now().to_rfc3339(),
+                                    yaw, pitch, roll,
+                                    attitude.v_yaw, attitude.v_pitch, attitude.v_roll
+                                );
+                                file.write_all(log_line.as_bytes()).await?;
+                            }
+                        } else {
+                            println!("\nWARN: Received Attitude packet (0x0D) but len was too short: {}", len);
                         }
+                    } else {
+                        // UNCOMMENT THIS TO SEE WHY IT'S FAILING
+                        // This will tell you what packet IDs you ARE receiving instead of Attitude
+                         println!("\nIgnored Packet. ID: 0x{:02X} (Length: {})", cmd_id, len);
                     }
                 }
             }
