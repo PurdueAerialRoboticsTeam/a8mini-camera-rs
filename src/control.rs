@@ -82,8 +82,8 @@ impl Command for A8MiniComplexCommand {
             A8MiniComplexCommand::SetYawPitchAngle(theta_yaw, theta_pitch) => {
                 let mut byte_arr: Vec<u8> = vec![0x55, 0x66, 0x01, 0x04, 0x00, 0x00, 0x00, 0x0e];
 
-                byte_arr.extend_from_slice(&theta_yaw.clamp(-1350, 1350).to_be_bytes());
-                byte_arr.extend_from_slice(&theta_pitch.clamp(-900, 250).to_be_bytes());
+                byte_arr.extend_from_slice(&theta_yaw.clamp(-1350, 1350).to_le_bytes());
+                byte_arr.extend_from_slice(&theta_pitch.clamp(-900, 250).to_le_bytes());
 
                 byte_arr.extend_from_slice(&checksum::crc16_calc(&byte_arr, 0));
 
