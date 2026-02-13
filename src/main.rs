@@ -107,10 +107,9 @@ async fn main() -> anyhow::Result<()> {
 
         // GIMBAL ATTITUDE INFORMATION LOGGING TEST WITH 100 HZ
         if command == "LogAttitudeStream" {
-            println!("Starting 100Hz Attitude Stream & Logging...");
+            println!("Starting 100Hz Active Polling Log...");
             let camera = A8Mini::connect().await?;
 
-            // create log file
             let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string();
             let filename = format!("attitude_log_{}.csv", timestamp);
             
@@ -120,27 +119,26 @@ async fn main() -> anyhow::Result<()> {
                 .open(&filename)
                 .await?;
 
-            // write CSV Header
             file.write_all(b"Timestamp,Yaw,Pitch,Roll,V_Yaw,V_Pitch,V_Roll\n").await?;
             println!("Logging to: {}", filename);
+            println!("Polling Attitude (0x0D) at ~100Hz... (Press Ctrl+C to stop)");
 
-            // Send Command 0x25
-            println!("Sending Stream Request (0x25)...");
-            let start_stream_cmd = A8MiniComplexCommand::RequestGimbalDataStream(1, 7);
-            camera.send_command_blind(start_stream_cmd).await?;
-            println!("Request sent. Entering receive loop... (Press Ctrl+C to stop)");
-
-            let mut buffer = [0u8; 128]; 
+            let mut buffer = [0u8; 128];
+            let mut print_counter: u64 = 0; // Counter to slow down prints
+            
             loop {
-                let (len, _) = camera.command_socket.recv_from(&mut buffer).await?;
-                
-                if len > 0 {
-                    let cmd_id = buffer[7]; 
+                // A. ACTIVELY ASK for data (Poll)
+                // We use send_command_blind because we are about to listen manually immediately after
+                camera.send_command_blind(A8MiniSimpleCommand::AttitudeInformation).await?;
 
-                    // Check if it is an Attitude Packet (0x0D / 13)
-                    if cmd_id == 0x0D {
-                        if len >= 20 {
-                             // Skip 8 byte header
+                // B. Listen for the response with a timeout
+                // We wrap this in a timeout so the loop doesn't hang forever if a packet drops
+                let recv_future = camera.command_socket.recv_from(&mut buffer);
+                
+                match tokio::time::timeout(std::time::Duration::from_millis(50), recv_future).await {
+                    Ok(Ok((len, _))) => {
+                        // Check if it is the correct packet (Attitude ID: 0x0D / 13)
+                        if len >= 20 && buffer[7] == 0x0D {
                             let data_slice = &buffer[8..20];
                             
                             if let Ok(attitude) = deserialize::<A8MiniAttitude>(data_slice) {
@@ -148,10 +146,7 @@ async fn main() -> anyhow::Result<()> {
                                 let pitch = attitude.theta_pitch as f32 / 10.0;
                                 let roll = attitude.theta_roll as f32 / 10.0;
                                 
-                                // Print valid data
-                                print!("\rAttitude: Y: {:>6.1} | P: {:>6.1} | R: {:>6.1}", yaw, pitch, roll);
-                                io::stdout().flush().unwrap();
-
+                                // 1. ALWAYS Log to file (Every single packet)
                                 let log_line = format!(
                                     "{},{},{},{},{},{},{}\n",
                                     Utc::now().to_rfc3339(),
@@ -159,12 +154,26 @@ async fn main() -> anyhow::Result<()> {
                                     attitude.v_yaw, attitude.v_pitch, attitude.v_roll
                                 );
                                 file.write_all(log_line.as_bytes()).await?;
+
+                                // 2. ONLY Print to console every 10th packet (~10Hz update rate)
+                                if print_counter % 10 == 0 {
+                                    print!("\rAttitude: Y: {:>6.1} | P: {:>6.1} | R: {:>6.1}", yaw, pitch, roll);
+                                    io::stdout().flush().unwrap();
+                                }
+                                print_counter += 1;
                             }
-                        } else {
-                            println!("\nWARN: Received Attitude packet (0x0D) but len was too short: {}", len);
                         }
-                    } 
+                    },
+                    Ok(Err(e)) => println!("Socket Error: {:?}", e),
+                    Err(_) => {
+                        // Timeout happened (Camera didn't reply to this specific poll fast enough)
+                        // Just continue to the next loop iteration to try again
+                    }
                 }
+
+                // C. Throttle the loop to target ~100Hz
+                // 10ms delay = 100 times per second
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         }
         // end of logging block
@@ -205,7 +214,6 @@ async fn main() -> anyhow::Result<()> {
             _ => None,
         };
 
-        // --- I DELETED THE DUPLICATE BLOCK HERE. THIS IS THE ONE WE KEEP: ---
         if let Some(cmd) = simple_command_enum {
             println!("Sending Simple Command {:?}", cmd);
             let camera: A8Mini = A8Mini::connect().await?;
@@ -216,7 +224,7 @@ async fn main() -> anyhow::Result<()> {
                     Err(e) => println!("Failed to get attitude: {:?}", e),
                 }
             } 
-            // THIS HANDLES FIRMWARE VERSION
+            // Handles Firmware Version Specifics
             else if cmd == A8MiniSimpleCommand::FirmwareVersionInformation {
                 match camera.get_firmware_version().await {
                     Ok(info) => println!("{}", info),
@@ -335,7 +343,10 @@ async fn main() -> anyhow::Result<()> {
                         .await?
                         .write_all(&video_bytes)
                         .await?;
-                }
+                } // _ => {
+                  //   let response = camera.send_http_query(complex_query).await?;
+                  //   println!("{:?}", response);
+                  // }
             };
 
             continue;

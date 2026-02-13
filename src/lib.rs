@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use bincode::deserialize;
 use tokio::{net::UdpSocket, time::timeout};
 use tracing::{debug, error, info};
+use tokio::sync::mpsc;
 
 pub mod checksum;
 pub mod constants;
@@ -83,16 +84,7 @@ impl A8Mini {
         &self,
         command: T,
     ) -> anyhow::Result<()> {
-        debug!(
-            "Sending command with bytes: {:?}",
-            command.to_bytes()
-        );
-
-        debug!(
-            "Sending command with DATA_LEN: {:?} and CMD_ID: {:?}",
-            command.to_bytes()[3],
-            command.to_bytes()[7]
-        );
+       
 
         let send_len = self.command_socket.send(command.to_bytes().as_slice()).await?;
 
@@ -101,7 +93,7 @@ impl A8Mini {
             return Err(anyhow!("No command bytes sent.".to_string()));
         }
 
-        debug!("Sent {} command bytes successfully.", send_len);
+
 
         Ok(())
     }
@@ -136,7 +128,6 @@ impl A8Mini {
     }
 
     /// Retrieves attitude information from the camera. 
-    /// Can be used as a system connectivity check.
     pub async fn get_attitude_information(
         &self,
     ) -> anyhow::Result<control::A8MiniAttitude> {
@@ -154,7 +145,46 @@ impl A8Mini {
         
         Ok(attitude_info)
     }
-    
+
+    pub fn stream_attitude_data(self, target_hz: u64) -> mpsc::Receiver<control::A8MiniAttitude> {
+        // Create a channel with a buffer of 100 packets
+        let (tx, rx) = mpsc::channel(100);
+        
+        // Calculate sleep time (e.g., 100Hz = 10ms)
+        let interval_ms = 1000 / target_hz;
+
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 128];
+            
+            loop {
+                if let Err(_) = self.send_command_blind(control::A8MiniSimpleCommand::AttitudeInformation).await {
+                }
+
+                let recv_future = self.command_socket.recv_from(&mut buffer);
+                match timeout(std::time::Duration::from_millis(50), recv_future).await {
+                    Ok(Ok((len, _))) => {
+                        // Check for correct Packet ID (0x0D)
+                        if len >= 20 && buffer[7] == 0x0D {
+                            let data_slice = &buffer[8..20];
+                            if let Ok(att) = deserialize::<control::A8MiniAttitude>(data_slice) {
+                                
+                                if tx.send(att).await.is_err() {
+                                    break; 
+                                }
+                            }
+                        }
+                    },
+                    _ => {}
+                }
+
+                // maintain Frequency
+                tokio::time::sleep(std::time::Duration::from_millis(interval_ms)).await;
+            }
+        });
+
+        rx
+    }
+
     pub async fn get_firmware_version(&self) -> anyhow::Result<control::A8MiniFirmwareVersion> {
         let response = self
             .send_command(control::A8MiniSimpleCommand::FirmwareVersionInformation)
@@ -185,6 +215,8 @@ impl A8Mini {
         Ok(json)
     }
 
+    
+
     /// Retrieves an image or video (WIP) from the camera.
     pub async fn send_http_media_query<T: control::HTTPQuery>(
         &self,
@@ -197,6 +229,8 @@ impl A8Mini {
         info!("Received HTTP response.");
         Ok(image_bytes.to_vec())
     }
+
+    
 }
 
 #[cfg(test)]
