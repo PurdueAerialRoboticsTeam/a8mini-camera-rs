@@ -1,4 +1,4 @@
-use std::io::{self, Write}; // Added Write for stdout flushing
+use std::io::{self, Write};
 
 use a8mini_camera_rs::control::{
     A8MiniComplexCommand, A8MiniComplexHTTPQuery, A8MiniSimpleCommand, A8MiniSimpleHTTPQuery,
@@ -63,7 +63,10 @@ fn print_ascii_command_table() {
         "GetMediaCountVideos",
     ];
 
-    let complex_queries = ["GetPhoto(u32)", "GetVideo(u32)"];
+    let complex_queries = [
+        "GetPhoto(u32)",
+        "GetVideo(u32)"
+    ];
 
     let all_printed = [
         simple_commands.to_vec(),
@@ -125,6 +128,9 @@ async fn main() -> anyhow::Result<()> {
 
             let mut buffer = [0u8; 128];
             let mut print_counter: u64 = 0; // Counter to slow down prints
+
+            let max_failure_threshold = 10;
+            let mut failure_count = 0;
             
             loop {
                 // A. ACTIVELY ASK for data (Poll)
@@ -133,10 +139,17 @@ async fn main() -> anyhow::Result<()> {
 
                 // B. Listen for the response with a timeout
                 // We wrap this in a timeout so the loop doesn't hang forever if a packet drops
-                let recv_future = camera.command_socket.recv_from(&mut buffer);
+                let recv_content = tokio::time::timeout(
+                    std::time::Duration::from_millis(50),
+                    camera.command_socket.recv_from(&mut buffer),
+                ).await.or_else(|e| {
+                    // Propagate error through, but also print out vitals:
+                    eprintln!("Did not get a response before 50ms timeout. Is the camera connected?");
+                    Err(e)
+                })?;
                 
-                match tokio::time::timeout(std::time::Duration::from_millis(50), recv_future).await {
-                    Ok(Ok((len, _))) => {
+                match recv_content {
+                    Ok((len, _)) => {
                         // Check if it is the correct packet (Attitude ID: 0x0D / 13)
                         if len >= 20 && buffer[7] == 0x0D {
                             let data_slice = &buffer[8..20];
@@ -164,10 +177,15 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                     },
-                    Ok(Err(e)) => println!("Socket Error: {:?}", e),
-                    Err(_) => {
-                        // Timeout happened (Camera didn't reply to this specific poll fast enough)
-                        // Just continue to the next loop iteration to try again
+                    Err(e) => {
+                        failure_count += 1;
+                        eprintln!("Failed to receive attitude from camera ({} fails): {}", failure_count, e);
+                        if failure_count >= max_failure_threshold {
+                            eprintln!("Failure count exceeds threshold {}. Exiting...", max_failure_threshold);
+                            break;
+                        }
+
+                        continue;
                     }
                 }
 
@@ -175,6 +193,8 @@ async fn main() -> anyhow::Result<()> {
                 // 10ms delay = 100 times per second
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
+
+            continue;
         }
         // end of logging block
 
@@ -218,26 +238,30 @@ async fn main() -> anyhow::Result<()> {
             println!("Sending Simple Command {:?}", cmd);
             let camera: A8Mini = A8Mini::connect().await?;
 
-            if cmd == A8MiniSimpleCommand::AttitudeInformation {
-                match camera.get_attitude_information().await {
-                    Ok(info) => println!("{}", info), 
-                    Err(e) => println!("Failed to get attitude: {:?}", e),
-                }
-            } 
-            // Handles Firmware Version Specifics
-            else if cmd == A8MiniSimpleCommand::FirmwareVersionInformation {
-                match camera.get_firmware_version().await {
-                    Ok(info) => println!("{}", info),
-                    Err(e) => println!("Failed to get firmware version: {:?}", e),
-                }
-            } 
-            else {
-                if let Ok(response) = camera.send_command(cmd).await {
-                    println!("Received Response {:?}", response);
-                } else {
-                    println!("Failed to receive response");
-                }
-            }
+            match cmd {
+                A8MiniSimpleCommand::AttitudeInformation => {
+                    match camera.get_attitude_information().await {
+                        Ok(info) => println!("{}", info), 
+                        Err(e) => println!("Failed to get attitude: {:?}", e),
+                    }
+                },
+
+                A8MiniSimpleCommand::FirmwareVersionInformation => {
+                    match camera.get_firmware_version().await {
+                        Ok(info) => println!("{}", info),
+                        Err(e) => println!("Failed to get firmware version: {:?}", e),
+                    }
+                },
+
+                _ => {
+                    if let Ok(response) = camera.send_command(cmd).await {
+                        println!("Received Response {:?}", response);
+                    } else {
+                        println!("Failed to receive response");
+                    }
+                },
+            };
+
             continue;
         }
 
