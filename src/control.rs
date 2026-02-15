@@ -1,6 +1,6 @@
 use crate::{checksum, constants};
 use serde::{Deserialize, Serialize};
-
+use std::fmt;
 
 /// Trait for camera commands
 pub trait Command {
@@ -31,7 +31,7 @@ pub enum A8MiniSimpleCommand {
     RecordVideo = 13, // no ACK
     Rotate100100 = 14,
     CameraInformation = 15,
-    AutoFocus = 16,   // handled ACK (sta)
+    AutoFocus = 16, // handled ACK (sta)
     HardwareIDInformation = 17,
     FirmwareVersionInformation = 18,
     SetLockMode = 19,
@@ -46,6 +46,7 @@ pub enum A8MiniSimpleCommand {
     RebootGimbal = 28,
     Resolution4k = 29,
     Heartbeat = 30,
+    GimbalStatus = 31,
 }
 
 impl Command for A8MiniSimpleCommand {
@@ -60,8 +61,9 @@ pub enum A8MiniComplexCommand {
     SetYawPitchSpeed(i8, i8),
     SetYawPitchAngle(i16, i16),
     SetTimeUTC(u64),
-    GetCodecSpecs(u8), // TODO: WIP
+    GetCodecSpecs(u8),                        // TODO: WIP
     SetCodecSpecs(u8, u8, u16, u16, u16, u8), // TODO: WIP
+    RequestGimbalDataStream(u8, u8),          // gimbal data stream
 }
 
 impl Command for A8MiniComplexCommand {
@@ -76,46 +78,64 @@ impl Command for A8MiniComplexCommand {
                 byte_arr.extend_from_slice(&checksum::crc16_calc(&byte_arr, 0));
 
                 byte_arr
-            },
+            }
             A8MiniComplexCommand::SetYawPitchAngle(theta_yaw, theta_pitch) => {
                 let mut byte_arr: Vec<u8> = vec![0x55, 0x66, 0x01, 0x04, 0x00, 0x00, 0x00, 0x0e];
 
-                byte_arr.extend_from_slice(&theta_yaw.clamp(-1350, 1350).to_be_bytes());
-                byte_arr.extend_from_slice(&theta_pitch.clamp(-900, 250).to_be_bytes());
+                byte_arr.extend_from_slice(&theta_yaw.clamp(-1350, 1350).to_le_bytes());
+                byte_arr.extend_from_slice(&theta_pitch.clamp(-900, 250).to_le_bytes());
 
                 byte_arr.extend_from_slice(&checksum::crc16_calc(&byte_arr, 0));
 
                 byte_arr
-            },
+            }
             A8MiniComplexCommand::SetTimeUTC(timestamp) => {
                 let mut byte_arr: Vec<u8> = vec![0x55, 0x66, 0x01, 0x04, 0x00, 0x00, 0x00, 0x30];
 
-                byte_arr.extend_from_slice(&timestamp.to_be_bytes());
+                byte_arr.extend_from_slice(&timestamp.to_le_bytes());
 
                 byte_arr
-            },
+            }
             A8MiniComplexCommand::GetCodecSpecs(stream_type) => {
                 let mut byte_arr: Vec<u8> = vec![0x55, 0x66, 0x01, 0x04, 0x00, 0x00, 0x00, 0x20];
 
-                byte_arr.extend_from_slice(&stream_type.clamp(0, 2).to_be_bytes());
+                byte_arr.extend_from_slice(&stream_type.clamp(0, 2).to_le_bytes());
 
                 byte_arr
-            },
-            A8MiniComplexCommand::SetCodecSpecs(stream_type, video_enc_type, resolution_l, resolution_h, video_bitrate, _) => {
+            }
+            A8MiniComplexCommand::SetCodecSpecs(
+                stream_type,
+                video_enc_type,
+                resolution_l,
+                resolution_h,
+                video_bitrate,
+                _,
+            ) => {
                 let mut byte_arr: Vec<u8> = vec![0x55, 0x66, 0x01, 0x04, 0x00, 0x00, 0x00, 0x21];
 
-                byte_arr.extend_from_slice(&stream_type.clamp(0, 2).to_be_bytes());
-                byte_arr.extend_from_slice(&video_enc_type.clamp(1, 2).to_be_bytes());
+                byte_arr.extend_from_slice(&stream_type.clamp(0, 2).to_le_bytes());
+                byte_arr.extend_from_slice(&video_enc_type.clamp(1, 2).to_le_bytes());
 
                 // TODO: make sure resolution_l and resolution_h are clamped to only 1920/1280 and 1080/720 respectively
-                byte_arr.extend_from_slice(&resolution_l.to_be_bytes());
-                byte_arr.extend_from_slice(&resolution_h.to_be_bytes());
-                
+                byte_arr.extend_from_slice(&resolution_l.to_le_bytes());
+                byte_arr.extend_from_slice(&resolution_h.to_le_bytes());
+
                 // TODO: make sure video bitrate is reasonable
-                byte_arr.extend_from_slice(&video_bitrate.to_be_bytes());
+                byte_arr.extend_from_slice(&video_bitrate.to_le_bytes());
 
                 byte_arr
-            },
+            }
+            // implementation for 0x25 Request Gimbal Data Stream
+            A8MiniComplexCommand::RequestGimbalDataStream(data_type, data_freq) => {
+                // Header (STX + CTRL + DataLen=2 + Seq=0 + CmdID=0x25)
+                let mut byte_arr: Vec<u8> = vec![0x55, 0x66, 0x01, 0x02, 0x00, 0x00, 0x00, 0x25];
+                
+                byte_arr.push(data_type);
+                byte_arr.push(data_freq);
+                
+                byte_arr.extend_from_slice(&checksum::crc16_calc(&byte_arr, 0));
+                byte_arr
+            }
         }
     }
 }
@@ -187,15 +207,57 @@ pub struct HTTPResponseData {
     pub list: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub struct A8MiniFirmwareVersion {
+    // Camera Code Version (Bytes 8-11)
+    pub code_ver_byte0: u8, // Patch
+    pub code_ver_byte1: u8, // Minor
+    pub code_ver_byte2: u8, // Major
+    pub code_ver_byte3: u8, // Rev
+
+    // Gimbal Version (Bytes 12-15)
+    pub gimbal_ver_byte0: u8, // Patch (e.g. 4)
+    pub gimbal_ver_byte1: u8, // Minor (e.g. 4)
+    pub gimbal_ver_byte2: u8, // Major (e.g. 0)
+    pub gimbal_ver_byte3: u8, // Rev   (e.g. 115)
+}
+
+impl fmt::Display for A8MiniFirmwareVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Display format: Major.Minor.Patch
+        write!(
+            f,
+            "FIRMWARE VERSION:\n\tCamera: {}.{}.{}\n\tGimbal: {}.{}.{} (Build {})",
+            // Camera
+            self.code_ver_byte2, self.code_ver_byte1, self.code_ver_byte0,
+            // Gimbal: Byte2 is Major (0), Byte1 is Minor (4), Byte0 is Patch (4)
+            self.gimbal_ver_byte2, self.gimbal_ver_byte1, self.gimbal_ver_byte0, self.gimbal_ver_byte3
+        )
+    }
+}
 /// Camera attitude information
 #[derive(Debug, PartialEq, Eq, Deserialize)]
-pub struct A8MiniAtittude {
+pub struct A8MiniAttitude {
     pub theta_yaw: i16,
     pub theta_pitch: i16,
     pub theta_roll: i16,
     pub v_yaw: i16,
     pub v_pitch: i16,
     pub v_roll: i16,
+}
+
+impl fmt::Display for A8MiniAttitude {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let yaw_deg = self.theta_yaw as f32 / 10.0;
+        let pitch_deg = self.theta_pitch as f32 / 10.0;
+        let roll_deg = self.theta_roll as f32 / 10.0;
+
+        write!(
+            f,
+            "GIMBAL ATTITUDE:\n\tYaw:   {:.1}°\n\tPitch: {:.1}°\n\tRoll:  {:.1}°\n\t(Speeds: Y={}, P={}, R={})",
+            yaw_deg, pitch_deg, roll_deg, self.v_yaw, self.v_pitch, self.v_roll
+        )
+    }
 }
 
 #[cfg(test)]
@@ -226,10 +288,10 @@ mod tests {
             0x28, 0x00, 0x32, 0x00, 0x3c, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00,
         ];
 
-        // Note: little endian deserialize
-        let computed_attitude_info: A8MiniAtittude = bincode::deserialize(attitude_bytes).unwrap();
+        //little endian deserialize
+        let computed_attitude_info: A8MiniAttitude = bincode::deserialize(attitude_bytes).unwrap();
 
-        let expected_attitude_info = A8MiniAtittude {
+        let expected_attitude_info = A8MiniAttitude {
             theta_yaw: 40,
             theta_pitch: 50,
             theta_roll: 60,
