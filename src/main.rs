@@ -103,9 +103,12 @@ async fn main() -> anyhow::Result<()> {
         let stdin = io::stdin();
         let buf = &mut String::new();
         stdin.read_line(buf)?;
-        full_command = buf.strip_suffix("\n").unwrap();
+        full_command = buf.trim();
+        if full_command.is_empty() {
+            continue;
+        }
 
-        let destructured_command: Vec<&str> = full_command.split(" ").collect();
+        let destructured_command: Vec<&str> = full_command.split_whitespace().collect();
         let command: &str = destructured_command[0];
 
         // GIMBAL ATTITUDE INFORMATION LOGGING TEST WITH 100 HZ
@@ -267,25 +270,25 @@ async fn main() -> anyhow::Result<()> {
 
         let complex_command_enum: Option<A8MiniComplexCommand> = match command {
             "SetYawPitchSpeed" => {
-                let yaw: i8 = destructured_command[1].parse().unwrap_or(0);
-                let pitch: i8 = destructured_command[2].parse().unwrap_or(0);
+                let yaw: i8 = destructured_command.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+                let pitch: i8 = destructured_command.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
                 Some(A8MiniComplexCommand::SetYawPitchSpeed(yaw, pitch))
             }
             "SetYawPitchAngle" => {
-                let yaw: i16 = destructured_command[1].parse().unwrap_or(0);
-                let pitch: i16 = destructured_command[2].parse().unwrap_or(0);
+                let yaw: i16 = destructured_command.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+                let pitch: i16 = destructured_command.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
                 Some(A8MiniComplexCommand::SetYawPitchAngle(yaw, pitch))
             }
             "SetTimeUTC" => {
-                let epoch: u64 = destructured_command[1].parse().unwrap_or(0);
+                let epoch: u64 = destructured_command.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
                 Some(A8MiniComplexCommand::SetTimeUTC(epoch))
             }
             "GetCodecSpecs" => {
-                let stream_type: u8 = destructured_command[1].parse().unwrap_or(0);
+                let stream_type: u8 = destructured_command.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
                 Some(A8MiniComplexCommand::GetCodecSpecs(stream_type))
             }
             "SetCodecSpecs" => {
-                let stream_type: u8 = destructured_command[1].parse().unwrap_or(0);
+                let stream_type: u8 = destructured_command.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
                 Some(A8MiniComplexCommand::SetCodecSpecs(
                     stream_type,
                     2,
@@ -328,11 +331,11 @@ async fn main() -> anyhow::Result<()> {
 
         let complex_query_enum: Option<A8MiniComplexHTTPQuery> = match command {
             "GetPhoto" => {
-                let photo_ind: u32 = destructured_command[1].parse().unwrap_or(0);
+                let photo_ind: u32 = destructured_command.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
                 Some(A8MiniComplexHTTPQuery::GetPhoto(photo_ind as u32))
             }
             "GetVideo" => {
-                let video_ind: u32 = destructured_command[1].parse().unwrap_or(0);
+                let video_ind: u32 = destructured_command.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
                 Some(A8MiniComplexHTTPQuery::GetVideo(video_ind as u32))
             }
             _ => None,
@@ -375,5 +378,7 @@ async fn main() -> anyhow::Result<()> {
 
             continue;
         }
+
+        println!("Unrecognized command: '{}'", command);
     }
 }
